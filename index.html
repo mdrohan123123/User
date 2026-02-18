@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>R O G | Secure Portal</title>
+    <meta name="theme-color" content="#0b0d17">
+
+    <!-- OTP Auth Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/otpauth/9.1.2/otpauth.umd.min.js"></script>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+    <!-- Fonts & Icons -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* Same styles as original – kept for brevity */
+        :root {
+            --bg-deep: #0b0d17;
+            --bg-surface: #141625;
+            --primary: #38bdf8;
+            --secondary: #818cf8;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --border: rgba(255, 255, 255, 0.05);
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --gradient-brand: linear-gradient(to right, #fff, var(--primary));
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { width: 100%; overflow-x: hidden; background-color: var(--bg-deep); color: var(--text-main); font-family: 'Outfit', sans-serif; }
+        body { min-height: 100vh; display: flex; flex-direction: column; }
+
+        nav {
+            padding: 1rem 1.5rem;
+            background: rgba(11, 13, 23, 0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            font-size: 1.25rem;
+            font-weight: 800;
+            background: var(--gradient-brand);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.02em;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1300px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+        }
+
+        @media (min-width: 1025px) {
+            .container { grid-template-columns: 1fr 1fr; gap: 2.5rem; padding: 0 2rem; }
+        }
+
+        .card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 1.5rem;
+            padding: 1.5rem;
+            box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5);
+            transition: var(--transition);
+        }
+
+        .card:hover { border-color: var(--primary); box-shadow: 0 20px 40px -10px var(--primary); }
+
+        .card-title {
+            font-size: 1.35rem;
+            font-weight: 800;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: var(--primary);
+        }
+
+        .otp-display {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
+            border-radius: 1.2rem;
+            padding: 2rem 1rem;
+            text-align: center;
+            margin-top: 1.5rem;
+        }
+
+        .otp-code {
+            font-size: clamp(2rem, 10vw, 4rem);
+            font-weight: 800;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--primary);
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+            cursor: pointer;
+            transition: var(--transition);
+            word-break: break-all;
+            text-shadow: 0 0 10px var(--primary);
+        }
+
+        .timer-bar {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 0 auto 1rem auto;
+            width: 90%;
+        }
+
+        #timer-progress { height: 100%; background: var(--primary); width: 100%; transition: width 1s linear; }
+
+        .timer-text {
+            font-size: 0.9rem;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .secret-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            width: 100%;
+        }
+
+        #secret-input {
+            width: 100%;
+            background: #1c1e2e;
+            border: 1px solid var(--border);
+            padding: 1rem;
+            border-radius: 1rem;
+            color: white;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+            transition: var(--transition);
+            font-size: 1rem;
+        }
+
+        #secret-input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1); }
+
+        .paste-btn {
+            width: 100%;
+            background: var(--primary);
+            color: var(--bg-deep);
+            border: none;
+            padding: 1rem 1.5rem;
+            border-radius: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-size: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .paste-btn:hover { background: var(--secondary); transform: translateY(-2px); box-shadow: 0 10px 20px -5px var(--primary); }
+
+        .news-item {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
+            border-radius: 1.2rem;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            transition: var(--transition);
+        }
+
+        .news-item:hover { border-color: var(--primary); transform: translateX(5px); }
+
+        .news-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; }
+        .news-title { font-weight: 700; color: var(--primary); font-size: 1.1rem; flex: 1; }
+        .news-body { color: var(--text-dim); font-size: 0.9rem; line-height: 1.5; }
+        .news-time { font-size: 0.7rem; color: var(--text-dim); margin-top: 1rem; opacity: 0.5; display: flex; align-items: center; gap: 5px; }
+
+        .ad-container { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+        .ad-space { background: rgba(0, 0, 0, 0.3); border: 1px dashed var(--primary); border-radius: 1rem; padding: 1rem; margin-bottom: 1rem; text-align: center; overflow: hidden; }
+        .ad-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.5rem; }
+        .ad-content { min-height: 90px; display: flex; align-items: center; justify-content: center; color: var(--text-dim); }
+
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--bg-deep);
+            z-index: 2000;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem;
+            cursor: pointer;
+        }
+
+        #toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            left: 2rem;
+            background: var(--success);
+            color: white;
+            padding: 1rem;
+            border-radius: 1rem;
+            font-weight: 800;
+            text-align: center;
+            transform: translateY(200%);
+            transition: var(--transition);
+            z-index: 3000;
+        }
+
+        @media (min-width: 768px) { #toast { left: auto; width: auto; padding: 1rem 2.5rem; } }
+        #toast.show { transform: translateY(0); }
+    </style>
+</head>
+<body>
+    <!-- Status Overlays -->
+    <div id="maintenance-overlay" class="overlay">
+        <h1 style="color: var(--warning);">🔧 System Updating...</h1>
+        <p id="maintenance-text">Network infrastructure is being upgraded. Please try again in a moment.</p>
+    </div>
+
+    <div id="block-overlay" class="overlay">
+        <h1 style="color: var(--danger);">⛔ Access Denied</h1>
+        <p>The platform is in high-security lockdown mode. All public transactions have been suspended.</p>
+    </div>
+
+    <nav>
+        <div class="brand" id="main-brand">ROG <span style="font-weight: 300; opacity: 0.5;">HUB</span></div>
+    </nav>
+
+    <main class="container">
+        <!-- OTP Card -->
+        <section class="card">
+            <div class="card-title"><i class="fa-solid fa-shield-halved"></i> Two-Factor Authenticator</div>
+            <div class="secret-container">
+                <input type="text" id="secret-input" placeholder="Paste secret key... (BASE32)" autocomplete="off">
+                <button class="paste-btn" onclick="pasteFromClipboard()"><i class="fa-solid fa-paste"></i> Paste</button>
+            </div>
+            <div class="otp-display">
+                <div class="otp-code" id="otp-value" onclick="copyOTP()">------</div>
+                <div class="timer-bar"><div id="timer-progress" style="width: 100%"></div></div>
+                <div class="timer-text"><i class="fa-regular fa-clock"></i> <span id="timer-seconds">30</span> seconds</div>
+            </div>
+            <small style="color:var(--text-dim); display: block; text-align: center; margin-top: 0.5rem;"><i class="fa-regular fa-circle-check"></i> OTP will be copied automatically</small>
+        </section>
+
+        <!-- News & Ads Card -->
+        <section class="card">
+            <div class="card-title"><i class="fa-solid fa-newspaper"></i> Live News Feed</div>
+            <div id="news-feed-container"></div>
+            <!-- 10 Ad Containers -->
+            <div class="ad-container" id="ad-container-1" style="display: none;"><div class="ad-space"><div class="ad-label">Advertisement</div><div class="ad-content" id="ad-content-1"></div></div></div>
+            <div class="ad-container" id="ad-container-2" style="display: none;"><div class="ad-space"><div class="ad-label">Advertisement</div><div class="ad-content" id="ad-content-2"></div></div></div>
+            <div class="ad-container" id="ad-container-3" style="display: none;"><div class="ad-space"><div class="ad-label">Advertisement</div><div class="ad-content" id="ad-content-3"></div></div></div>
+            <div class="ad-container" id="ad-container-4" style="display: none;"><div class="ad-space"><div class="ad-label">Advertisement</div><div class="ad-content" id="ad-content-4"></div></div></div>
+            <div class="ad-container" id="ad-container-5" style="display: none;"><div class="ad-space"><div class="ad-label">Advertisement</div><div class="ad-content" id="ad-content-5"></div></div></div>
+            <div class="ad-container" id="ad-container-6" style="display: none;"><div class="ad-space"><div class="ad-label">Advertisement</div><div class="ad-content" id="ad-content-6"></div></div></div>
+            <div class="ad-container" id="ad-container-7" style="display: none;"><div class="ad-space"><div class="ad-label">Advertisement</div><div class="ad-content" id="ad-content-7"></div></div></div>
+            <div class="ad-container" id="ad-container-8" style="display: none;"><div class="ad-space"><div class="ad-label">Advertisement</div><div class="ad-content" id="ad-content-8"></div></div></div>
+            <div class="ad-container" id="ad-container-9" style="display: none;"><div class="ad-space"><div class="ad-label">Advertisement</div><div class="ad-content" id="ad-content-9"></div></div></div>
+            <div class="ad-container" id="ad-container-10" style="display: none;"><div class="ad-space"><div class="ad-label">Advertisement</div><div class="ad-content" id="ad-content-10"></div></div></div>
+        </section>
+    </main>
+
+    <div id="toast">Copied!</div>
+
+    <script>
+        // Firebase Config
+        const firebaseConfig = {
+            apiKey: "AIzaSyAcCLChnvJwCc99SJVtIDb0SzUmSYL24o",
+            authDomain: "rog-2fa-tool.firebaseapp.com",
+            projectId: "rog-2fa-tool",
+            storageBucket: "rog-2fa-tool.firebasestorage.app",
+            messagingSenderId: "1016081799180",
+            appId: "1:1016081799180:web:733164f4ab45c46d924f629",
+            measurementId: "G-168SSKWYTV"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        // Global Variables
+        let otpInterval;
+        let timerSeconds = 30;
+        let currentSecret = '';
+
+        // ---------- Firebase Listeners (Real-time) ----------
+        database.ref('settings').on('value', (snapshot) => {
+            const settings = snapshot.val();
+            if (settings) {
+                // Secret
+                if (settings.secret) {
+                    document.getElementById('secret-input').value = settings.secret;
+                    currentSecret = settings.secret;
+                    generateCorrectOTP();
+                } else {
+                    document.getElementById('secret-input').value = '';
+                    currentSecret = '';
+                    document.getElementById('otp-value').innerText = '------';
+                }
+                // Timer
+                if (settings.timer) {
+                    timerSeconds = parseInt(settings.timer);
+                    startOtpTimer(timerSeconds);
+                }
+                // Brand
+                if (settings.brand) {
+                    document.getElementById('main-brand').innerHTML = settings.brand + ' <span style="font-weight: 300; opacity: 0.5;">HUB</span>';
+                }
+                // Status & Notice
+                if (settings.status) {
+                    const status = settings.status;
+                    const notice = settings.notice || '';
+                    if (status === 'maintenance') {
+                        document.getElementById('maintenance-overlay').style.display = 'flex';
+                        document.getElementById('maintenance-text').textContent = notice || 'Network infrastructure is being upgraded.';
+                        document.getElementById('block-overlay').style.display = 'none';
+                    } else if (status === 'blocked') {
+                        document.getElementById('block-overlay').style.display = 'flex';
+                        document.getElementById('maintenance-overlay').style.display = 'none';
+                    } else {
+                        document.getElementById('maintenance-overlay').style.display = 'none';
+                        document.getElementById('block-overlay').style.display = 'none';
+                    }
+                }
+                // Theme
+                if (settings.primary) {
+                    setTheme(settings.primary, settings.secondary || settings.primary);
+                }
+            }
+        });
+
+        database.ref('news').on('value', (snapshot) => {
+            const news = snapshot.val();
+            if (news) {
+                const newsItems = Object.values(news);
+                renderNewsFeed(newsItems);
+            } else {
+                renderNewsFeed([]);
+            }
+        });
+
+        database.ref('ads').on('value', (snapshot) => {
+            const ads = snapshot.val();
+            if (ads) {
+                for (let i = 1; i <= 10; i++) {
+                    const adCode = ads[`ad_${i}`] || '';
+                    localStorage.setItem(`rog_ad_${i}`, adCode); // cache for rendering
+                }
+                renderAds();
+            }
+        });
+
+        // ---------- OTP Functions ----------
+        function setTheme(primary, secondary) {
+            document.documentElement.style.setProperty('--primary', primary);
+            document.documentElement.style.setProperty('--secondary', secondary || primary);
+            document.documentElement.style.setProperty('--gradient-brand', `linear-gradient(to right, #fff, ${primary})`);
+        }
+
+        async function pasteFromClipboard() {
+            try {
+                const text = await navigator.clipboard.readText();
+                document.getElementById('secret-input').value = text;
+                processSecret(text);
+            } catch (err) {
+                showToast('Error pasting');
+            }
+        }
+
+        function processSecret(secret) {
+            if (!secret || secret.trim() === '') {
+                document.getElementById('otp-value').innerText = '------';
+                return;
+            }
+            currentSecret = secret.trim().replace(/\s/g, '').toUpperCase();
+            generateCorrectOTP();
+        }
+
+        function generateCorrectOTP() {
+            if (!currentSecret) return;
+            try {
+                let totp = new OTPAuth.TOTP({
+                    secret: OTPAuth.Secret.fromBase32(currentSecret),
+                    digits: 6,
+                    period: timerSeconds
+                });
+                const otp = totp.generate();
+                document.getElementById('otp-value').innerText = otp;
+                copyToClipboard(otp);
+                showToast('OTP copied!');
+            } catch (e) {
+                console.error(e);
+                document.getElementById('otp-value').innerText = '------';
+            }
+        }
+
+        async function copyToClipboard(text) {
+            try { await navigator.clipboard.writeText(text); } catch (err) { console.error(err); }
+        }
+
+        async function copyOTP() {
+            const otp = document.getElementById('otp-value').innerText;
+            if (otp && otp !== '------') {
+                await copyToClipboard(otp);
+                showToast('OTP copied!');
+            }
+        }
+
+        function startOtpTimer(seconds = 30) {
+            if (otpInterval) clearInterval(otpInterval);
+            timerSeconds = seconds;
+            if (currentSecret) generateCorrectOTP();
+
+            function updateTimer() {
+                const now = Date.now();
+                const epoch = Math.floor(now / 1000);
+                const timeInPeriod = epoch % timerSeconds;
+                const remaining = timerSeconds - timeInPeriod;
+                document.getElementById('timer-seconds').innerText = remaining;
+                const progressPercent = ((timerSeconds - timeInPeriod) / timerSeconds) * 100;
+                document.getElementById('timer-progress').style.width = progressPercent + '%';
+                if (remaining === timerSeconds && currentSecret) generateCorrectOTP();
+            }
+            updateTimer();
+            otpInterval = setInterval(updateTimer, 100);
+        }
+
+        // ---------- News & Ads ----------
+        function renderNewsFeed(items) {
+            const container = document.getElementById('news-feed-container');
+            if (!items.length) {
+                container.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 2rem;">No news</div>';
+                return;
+            }
+            const sorted = [...items].sort((a, b) => b.time - a.time);
+            let html = '';
+            sorted.forEach(item => {
+                const date = new Date(item.time).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+                html += `<div class="news-item"><div class="news-header"><span class="news-title">${item.title}</span></div><div class="news-body">${item.body}</div><div class="news-time"><i class="fa-regular fa-clock"></i> ${date}</div></div>`;
+            });
+            container.innerHTML = html;
+        }
+
+        function injectAdHTML(container, html) {
+            container.innerHTML = html;
+            const scripts = container.querySelectorAll('script');
+            scripts.forEach(oldScript => {
+                const newScript = document.createElement('script');
+                Array.from(oldScript.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value));
+                newScript.textContent = oldScript.textContent;
+                oldScript.parentNode.replaceChild(newScript, oldScript);
+            });
+        }
+
+        function renderAds() {
+            for (let i = 1; i <= 10; i++) {
+                const adCode = localStorage.getItem(`rog_ad_${i}`) || '';
+                const container = document.getElementById(`ad-container-${i}`);
+                const contentDiv = document.getElementById(`ad-content-${i}`);
+                if (adCode && adCode.trim() !== '') {
+                    container.style.display = 'block';
+                    injectAdHTML(contentDiv, adCode);
+                } else {
+                    container.style.display = 'none';
+                    contentDiv.innerHTML = '';
+                }
+            }
+        }
+
+        // ---------- Utility ----------
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        // ---------- Event Listeners ----------
+        document.addEventListener('DOMContentLoaded', function() {
+            const secretInput = document.getElementById('secret-input');
+            secretInput.addEventListener('paste', () => setTimeout(() => processSecret(secretInput.value), 100));
+            secretInput.addEventListener('input', function() {
+                if (secretInput.value.length >= 16) processSecret(secretInput.value);
+            });
+        });
+
+        // Initial start
+        window.onload = function() {
+            // Timer default 30, will be updated by Firebase
+            startOtpTimer(30);
+        };
+    </script>
+</body>
+</html>
