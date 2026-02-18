@@ -233,6 +233,27 @@
 
         @media (min-width: 768px) { #toast { left: auto; width: auto; padding: 1rem 2.5rem; } }
         #toast.show { transform: translateY(0); }
+
+        /* Offline badge */
+        #offline-badge {
+            position: fixed;
+            bottom: 16px;
+            left: 16px;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            color: #ffaa00;
+            padding: 8px 16px;
+            border-radius: 40px;
+            font-size: 14px;
+            font-weight: 600;
+            border: 1px solid #ffaa00;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            gap: 8px;
+        }
+        #offline-badge i { font-size: 16px; }
     </style>
 </head>
 <body>
@@ -247,8 +268,11 @@
         <p>The platform is in high-security lockdown mode. All public transactions have been suspended.</p>
     </div>
 
+    <!-- Offline mode indicator -->
+    <div id="offline-badge"><i class="fa-solid fa-wifi"></i> Offline mode (cached)</div>
+
     <nav>
-        <div class="brand" id="main-brand">ROG <span style="font-weight: 300; opacity: 0.5;">HUB</span></div>
+        <div class="brand" id="main-brand">ROG | HUB <span style="font-weight: 300; opacity: 0.5;">HUB</span></div>
     </nav>
 
     <main class="container">
@@ -304,87 +328,190 @@
             measurementId: "G-168SSKWYTV"
         };
 
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
+        // Initialize Firebase (with error resilience)
+        let database;
+        try {
+            firebase.initializeApp(firebaseConfig);
+            database = firebase.database();
+        } catch (e) {
+            console.warn("Firebase init failed, offline mode only", e);
+        }
 
         // Global Variables
         let otpInterval;
         let timerSeconds = 30;
         let currentSecret = '';
-        // New variables for visibility toggles (default true)
         let newsEnabled = true;
         let adsEnabled = true;
 
-        // ---------- Firebase Listeners (Real-time) ----------
-        database.ref('settings').on('value', (snapshot) => {
-            const settings = snapshot.val() || {};
-            
-            // Secret
-            if (settings.secret) {
-                document.getElementById('secret-input').value = settings.secret;
-                currentSecret = settings.secret;
-                generateCorrectOTP();
+        // ---------- Offline Mode UI ----------
+        function updateOfflineBadge() {
+            const badge = document.getElementById('offline-badge');
+            if (!navigator.onLine) {
+                badge.style.display = 'flex';
             } else {
-                document.getElementById('secret-input').value = '';
-                currentSecret = '';
-                document.getElementById('otp-value').innerText = '------';
+                badge.style.display = 'none';
             }
-            // Timer
-            if (settings.timer) {
-                timerSeconds = parseInt(settings.timer);
-                startOtpTimer(timerSeconds);
-            }
-            // Brand
-            if (settings.brand) {
-                document.getElementById('main-brand').innerHTML = settings.brand + ' <span style="font-weight: 300; opacity: 0.5;">HUB</span>';
-            }
-            // Status & Notice
-            if (settings.status) {
-                const status = settings.status;
-                const notice = settings.notice || '';
-                if (status === 'maintenance') {
-                    document.getElementById('maintenance-overlay').style.display = 'flex';
-                    document.getElementById('maintenance-text').textContent = notice || 'Network infrastructure is being upgraded.';
-                    document.getElementById('block-overlay').style.display = 'none';
-                } else if (status === 'blocked') {
-                    document.getElementById('block-overlay').style.display = 'flex';
-                    document.getElementById('maintenance-overlay').style.display = 'none';
-                } else {
-                    document.getElementById('maintenance-overlay').style.display = 'none';
-                    document.getElementById('block-overlay').style.display = 'none';
+        }
+        window.addEventListener('online', updateOfflineBadge);
+        window.addEventListener('offline', updateOfflineBadge);
+
+        // ---------- Local Storage Functions ----------
+        function loadFromLocalStorage() {
+            // Load settings
+            const savedSettings = localStorage.getItem('rog_settings');
+            if (savedSettings) {
+                try {
+                    const settings = JSON.parse(savedSettings);
+                    
+                    // Secret
+                    if (settings.secret) {
+                        document.getElementById('secret-input').value = settings.secret;
+                        currentSecret = settings.secret;
+                        generateCorrectOTP();
+                    } else {
+                        document.getElementById('secret-input').value = '';
+                        currentSecret = '';
+                        document.getElementById('otp-value').innerText = '------';
+                    }
+                    
+                    // Timer
+                    if (settings.timer) {
+                        timerSeconds = parseInt(settings.timer);
+                        startOtpTimer(timerSeconds);
+                    }
+                    
+                    // Brand
+                    if (settings.brand) {
+                        document.getElementById('main-brand').innerHTML = settings.brand + ' <span style="font-weight: 300; opacity: 0.5;">HUB</span>';
+                    }
+                    
+                    // Status & Notice
+                    if (settings.status) {
+                        const status = settings.status;
+                        const notice = settings.notice || '';
+                        if (status === 'maintenance') {
+                            document.getElementById('maintenance-overlay').style.display = 'flex';
+                            document.getElementById('maintenance-text').textContent = notice || 'Network infrastructure is being upgraded.';
+                            document.getElementById('block-overlay').style.display = 'none';
+                        } else if (status === 'blocked') {
+                            document.getElementById('block-overlay').style.display = 'flex';
+                            document.getElementById('maintenance-overlay').style.display = 'none';
+                        } else {
+                            document.getElementById('maintenance-overlay').style.display = 'none';
+                            document.getElementById('block-overlay').style.display = 'none';
+                        }
+                    }
+                    
+                    // Theme
+                    if (settings.primary) {
+                        setTheme(settings.primary, settings.secondary || settings.primary);
+                    }
+                    
+                    // Visibility toggles
+                    newsEnabled = settings.showNews !== false;
+                    adsEnabled = settings.showAds !== false;
+                    applyVisibility();
+                } catch (e) {
+                    console.warn('Failed to parse settings from localStorage', e);
                 }
             }
-            // Theme
-            if (settings.primary) {
-                setTheme(settings.primary, settings.secondary || settings.primary);
+            
+            // Load news
+            const savedNews = localStorage.getItem('rog_news');
+            if (savedNews) {
+                try {
+                    const news = JSON.parse(savedNews);
+                    // news can be an object or array; convert to array if needed
+                    const newsArray = (typeof news === 'object' && !Array.isArray(news)) ? Object.values(news) : news;
+                    renderNewsFeed(newsArray);
+                } catch (e) {
+                    console.warn('Failed to parse news from localStorage', e);
+                }
             }
+            
+            // Ads are loaded inside renderAds() directly from localStorage
+            renderAds();
+        }
 
-            // Visibility toggles
-            newsEnabled = settings.showNews !== false; // default true
-            adsEnabled = settings.showAds !== false;   // default true
+        // ---------- Firebase Listeners (Real-time, only if database available) ----------
+        if (database) {
+            database.ref('settings').on('value', (snapshot) => {
+                const settings = snapshot.val() || {};
+                
+                // Save to localStorage
+                localStorage.setItem('rog_settings', JSON.stringify(settings));
+                
+                // Secret
+                if (settings.secret) {
+                    document.getElementById('secret-input').value = settings.secret;
+                    currentSecret = settings.secret;
+                    generateCorrectOTP();
+                } else {
+                    document.getElementById('secret-input').value = '';
+                    currentSecret = '';
+                    document.getElementById('otp-value').innerText = '------';
+                }
+                // Timer
+                if (settings.timer) {
+                    timerSeconds = parseInt(settings.timer);
+                    startOtpTimer(timerSeconds);
+                }
+                // Brand
+                if (settings.brand) {
+                    document.getElementById('main-brand').innerHTML = settings.brand + ' <span style="font-weight: 300; opacity: 0.5;">HUB</span>';
+                }
+                // Status & Notice
+                if (settings.status) {
+                    const status = settings.status;
+                    const notice = settings.notice || '';
+                    if (status === 'maintenance') {
+                        document.getElementById('maintenance-overlay').style.display = 'flex';
+                        document.getElementById('maintenance-text').textContent = notice || 'Network infrastructure is being upgraded.';
+                        document.getElementById('block-overlay').style.display = 'none';
+                    } else if (status === 'blocked') {
+                        document.getElementById('block-overlay').style.display = 'flex';
+                        document.getElementById('maintenance-overlay').style.display = 'none';
+                    } else {
+                        document.getElementById('maintenance-overlay').style.display = 'none';
+                        document.getElementById('block-overlay').style.display = 'none';
+                    }
+                }
+                // Theme
+                if (settings.primary) {
+                    setTheme(settings.primary, settings.secondary || settings.primary);
+                }
 
-            // Apply visibility changes
-            applyVisibility();
-        });
+                // Visibility toggles
+                newsEnabled = settings.showNews !== false;
+                adsEnabled = settings.showAds !== false;
+                applyVisibility();
+            }, (error) => console.warn("Firebase settings error", error));
 
-        database.ref('news').on('value', (snapshot) => {
-            const news = snapshot.val();
-            if (news) {
-                const newsItems = Object.values(news);
-                renderNewsFeed(newsItems);
-            } else {
-                renderNewsFeed([]);
-            }
-        });
+            database.ref('news').on('value', (snapshot) => {
+                const news = snapshot.val();
+                // Save to localStorage
+                localStorage.setItem('rog_news', JSON.stringify(news));
+                
+                if (news) {
+                    const newsItems = Object.values(news);
+                    renderNewsFeed(newsItems);
+                } else {
+                    renderNewsFeed([]);
+                }
+            }, (error) => console.warn("Firebase news error", error));
 
-        database.ref('ads').on('value', (snapshot) => {
-            const ads = snapshot.val() || {};
-            for (let i = 1; i <= 10; i++) {
-                const adCode = ads[`ad_${i}`] || '';
-                localStorage.setItem(`rog_ad_${i}`, adCode); // cache for rendering
-            }
-            renderAds(); // render with current adsEnabled
-        });
+            database.ref('ads').on('value', (snapshot) => {
+                const ads = snapshot.val() || {};
+                for (let i = 1; i <= 10; i++) {
+                    const adCode = ads[`ad_${i}`] || '';
+                    localStorage.setItem(`rog_ad_${i}`, adCode); // cache for rendering
+                }
+                renderAds(); // render with current adsEnabled
+            }, (error) => console.warn("Firebase ads error", error));
+        } else {
+            console.log("Running in offline-only mode (Firebase unavailable)");
+        }
 
         // ---------- OTP Functions ----------
         function setTheme(primary, secondary) {
@@ -464,7 +591,7 @@
         // ---------- News & Ads ----------
         function renderNewsFeed(items) {
             const container = document.getElementById('news-feed-container');
-            if (!items.length) {
+            if (!items || !items.length) {
                 container.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 2rem;">No news</div>';
             } else {
                 const sorted = [...items].sort((a, b) => b.time - a.time);
@@ -475,7 +602,6 @@
                 });
                 container.innerHTML = html;
             }
-            // After rendering, apply visibility (in case news was toggled off)
             applyVisibility();
         }
 
@@ -505,19 +631,15 @@
             }
         }
 
-        // Updated function to apply visibility based on toggles
         function applyVisibility() {
-            // News card: entire section
             const newsCard = document.getElementById('news-card');
             if (newsCard) {
                 newsCard.style.display = newsEnabled ? 'block' : 'none';
             }
-            // Ads card: entire section
             const adsCard = document.getElementById('ads-card');
             if (adsCard) {
                 adsCard.style.display = adsEnabled ? 'block' : 'none';
             }
-            // Also ensure ads are rendered properly (already called from settings listener)
         }
 
         // ---------- Utility ----------
@@ -530,6 +652,11 @@
 
         // ---------- Event Listeners ----------
         document.addEventListener('DOMContentLoaded', function() {
+            // First load from localStorage (offline fallback)
+            loadFromLocalStorage();
+            updateOfflineBadge();
+            
+            // Then set up input listeners
             const secretInput = document.getElementById('secret-input');
             secretInput.addEventListener('paste', () => setTimeout(() => processSecret(secretInput.value), 100));
             secretInput.addEventListener('input', function() {
@@ -537,10 +664,14 @@
             });
         });
 
-        // Initial start
+        // Initial start (also called from loadFromLocalStorage, but ensure timer default)
         window.onload = function() {
-            // Timer default 30, will be updated by Firebase
-            startOtpTimer(30);
+            // Timer already started in loadFromLocalStorage if settings existed,
+            // but if no settings, start default 30
+            if (!localStorage.getItem('rog_settings')) {
+                startOtpTimer(30);
+            }
+            updateOfflineBadge();
         };
     </script>
 </body>
