@@ -364,16 +364,7 @@
                 try {
                     const settings = JSON.parse(savedSettings);
                     
-                    // Secret
-                    if (settings.secret) {
-                        document.getElementById('secret-input').value = settings.secret;
-                        currentSecret = settings.secret;
-                        generateCorrectOTP();
-                    } else {
-                        document.getElementById('secret-input').value = '';
-                        currentSecret = '';
-                        document.getElementById('otp-value').innerText = '------';
-                    }
+                    // Secret block removed for security – no longer loaded from localStorage
                     
                     // Timer
                     if (settings.timer) {
@@ -439,13 +430,14 @@
             database.ref('settings').on('value', (snapshot) => {
                 const settings = snapshot.val() || {};
                 
-                // Save to localStorage
-                localStorage.setItem('rog_settings', JSON.stringify(settings));
+                // Save to localStorage (excluding secret)
+                const { secret, ...safeSettings } = settings;
+                localStorage.setItem('rog_settings', JSON.stringify(safeSettings));
                 
-                // Secret
-                if (settings.secret) {
-                    document.getElementById('secret-input').value = settings.secret;
-                    currentSecret = settings.secret;
+                // Secret (memory only)
+                if (secret) {
+                    document.getElementById('secret-input').value = secret;
+                    currentSecret = secret;
                     generateCorrectOTP();
                 } else {
                     document.getElementById('secret-input').value = '';
